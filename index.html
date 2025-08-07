@@ -61,6 +61,23 @@ function rgb2hsv(r,g,b){
 }
 const rgbStr=(r,g,b)=>`rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
 const hexStr=(r,g,b)=>"#"+hex2(r)+hex2(g)+hex2(b);
+// hex parsing and setter utilities
+function parseHex(s){
+  if(!s) return null;
+  s=s.trim().toLowerCase();
+  if(s[0]==="#") s=s.slice(1);
+  if(s.length!==6) return null;
+  if(!/^[0-9a-f]{6}$/.test(s)) return null;
+  const r=parseInt(s.slice(0,2),16), g=parseInt(s.slice(2,4),16), b=parseInt(s.slice(4,6),16);
+  return [r,g,b];
+}
+function setHexOnIndex(i,hex){
+  const rgb=parseHex(hex);
+  if(!rgb) return false;
+  const [h,s,v]=rgb2hsv(rgb[0],rgb[1],rgb[2]);
+  cells[i]={h,s,v};
+  return true;
+}
 /* State */
 const W=4,H=4,N=W*H;
 let cells=Array.from({length:N},(_,i)=>({h:(i*360/N)|0,s:0.6,v:0.8}));
@@ -124,7 +141,9 @@ function render(){
     el.style.background=rgbStr(r,g,b);
     let ov=el.querySelector(".overlay");
     if(!ov){ov=document.createElement("div");ov.className="overlay";el.appendChild(ov)}
-    ov.textContent=fmtColor(c);
+    // if currently editing this cell, keep input; else show formatted text
+    const hasInput=ov.firstElementChild&&ov.firstElementChild.tagName==="INPUT";
+    if(!(hasInput && i===idx)) ov.textContent=fmtColor(c);
   }
   renderSel(); renderStatus(); fmtEl.textContent=fmt; save();
 }
@@ -140,6 +159,42 @@ function renderStatus(){
   <span class="kv">fmt</span> <span class="fmt">${fmt}</span>`;
 }
 /* Ops */
+let editingHex=false;
+function startHexEdit(){
+  if(fmt!=="hex"||editingHex) return;
+  const el=cellEl(idx);
+  let ov=el.querySelector(".overlay");
+  if(!ov){ov=document.createElement("div");ov.className="overlay";el.appendChild(ov)}
+  const [r,g,b]=hsv2rgb(cells[idx].h,cells[idx].s,cells[idx].v);
+  const hex=hexStr(r,g,b);
+  ov.textContent="";
+  const inp=document.createElement("input");
+  inp.type="text";
+  inp.value=hex;
+  inp.spellcheck=false; inp.autocomplete="off";
+  inp.style.width="100%"; inp.style.border="none"; inp.style.background="transparent";
+  inp.style.font="inherit"; inp.style.fontWeight="700"; inp.style.color="#000";
+  ov.appendChild(inp);
+  editingHex=true;
+  inp.focus();
+  inp.setSelectionRange(hex[0]==="#"?1:0,hex.length);
+  function apply(){
+    const v=inp.value.trim();
+    if(setHexOnIndex(idx,v)){ pushHist(); render(); }
+    stop();
+  }
+  function stop(){
+    if(!editingHex) return;
+    editingHex=false;
+    // re-render overlay with formatted text
+    const c=cells[idx]; ov.textContent=fmtColor(c);
+    grid.focus();
+  }
+  inp.addEventListener("keydown",ev=>{
+    if(ev.key==="Enter"){ev.preventDefault(); apply();}
+    else if(ev.key==="Escape"){ev.preventDefault(); stop();}
+  });
+}
 function move(dx,dy){
   const x=idx%W,y=(idx/W)|0;
   const nx=clamp(x+dx,0,W-1), ny=clamp(y+dy,0,H-1);
@@ -168,9 +223,13 @@ function runCmd(s){
   else if(c==="copy"){ // :copy hex|rgb|hsv
     const f=parts[1]||fmt; const old=fmt; if(f==="hex"||f==="rgb"||f==="hsv"){fmt=f; yank(); fmt=old;}
   }
+  else if(c==="sethex"&&parts[1]){ // :sethex #rrggbb|rrggbb
+    const ok=setHexOnIndex(idx,parts[1]);
+    if(ok){pushHist(); render();} else {alert("Invalid hex. Use rrggbb or #rrggbb");}
+  }
   else if(c==="save"){save()}
   else if(c==="load"){load(); render()}
-  else if(c==="help"){alert("commands: :format hex|rgb|hsv • :copy [fmt] • :save • :load")}
+  else if(c==="help"){alert("commands: :format hex|rgb|hsv • :copy [fmt] • :sethex #rrggbb • :save • :load")}
 }
 /* Keys */
 grid.addEventListener("keydown",e=>{
@@ -178,6 +237,7 @@ grid.addEventListener("keydown",e=>{
   const k=e.key;
   if(e.ctrlKey&&k.toLowerCase()==="r"){e.preventDefault(); doRedo(); return}
   if(k===":"){e.preventDefault(); enterCmd(); return}
+  if(k==="e"){e.preventDefault(); startHexEdit(); return}
   if(k==="h"){e.preventDefault(); move(-1,0)}
   else if(k==="l"){e.preventDefault(); move(1,0)}
   else if(k==="k"){e.preventDefault(); move(0,-1)}
