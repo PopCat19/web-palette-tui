@@ -1,12 +1,11 @@
-<!-- web-palette-tui v0: terminal-style palette TUI in one file, under 14KB target -->
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>web-palette-tui</title>
 <style>
-/* Minimal terminal look, compact CSS */
-:root{--bg:#0b0b0c;--fg:#d7d7d7;--dim:#6a6a6a;--acc:#43a047;--warn:#f39c12}
+/* --- Terminal-style minimal CSS --- */
+:root{--bg:#0b0b0c;--fg:#d7d7d7;--dim:#6a6a6a;--acc:#43a047}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.2 ui-monospace,Consolas,Menlo,monospace;display:flex;flex-direction:column}
@@ -14,14 +13,11 @@ body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.2 ui-monospace,Co
 .header{display:flex;gap:12px;align-items:center}
 .header .title{color:var(--acc);font-weight:700}
 .header .hint{color:var(--dim)}
-.grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:2px;padding:2px;background:#111;outline:none}
+.grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:2px;background:#111;outline:none}
 .cell{position:relative;min-height:54px;border:1px solid #000}
-.cell.lock:after{content:"L";position:absolute;top:2px;right:4px;color:#000;background:#fff3;padding:0 2px;font-size:10px}
 .cell.sel{outline:2px solid #fff7;box-shadow:0 0 0 2px #fff2 inset}
-.overlay{position:absolute;bottom:2px;left:4px;right:4px;color:#000;background:#fff9;font-weight:700;font-size:10px;padding:1px 2px}
-.overlay input{width:100%;border:none;background:transparent;font:inherit;font-weight:700;color:#111;outline:none}
-/* ensure grid keeps focus for keyboard; visible focus for accessibility */
-.grid:focus{box-shadow:0 0 0 1px #555 inset}
+.overlay{position:absolute;bottom:2px;left:4px;right:4px;font-weight:700;font-size:10px;padding:1px 2px}
+.overlay input{width:100%;border:none;background:transparent;font:inherit;font-weight:700;outline:none}
 .status{display:flex;gap:16px;align-items:center;border-top:1px solid #222;border-bottom:none}
 .status .kv{color:var(--dim)}
 .status .val{color:var(--fg)}
@@ -29,267 +25,208 @@ body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.2 ui-monospace,Co
 .cmd{display:none;border-top:1px solid #222}
 .cmd.active{display:block}
 input.cmdline{width:100%;padding:6px 8px;color:var(--fg);background:#0f0f11;border:1px solid #222;outline:none}
-a{color:inherit}
 </style>
 <body>
-  <div class="header">
-    <div class="title">web-palette-tui</div>
-    <div class="hint">hjkl move • H/L hue • S/D sat • V/F val • y copy • p paste • u undo • Ctrl-r redo • : command • e edit hex</div>
-    <div class="hint">format:<span id="fmt" class="fmt">hex</span></div>
-    <div class="hint">4x4</div>
-    <div class="hint">:help for keys and commands</div>
+<div class="header">
+  <div class="title">web-palette-tui</div>
+  <div class="hint">
+    hjkl move • H/L hue • S/D sat • V/F light • Shift+Alt = ×10 step • y copy • p paste • u undo • Ctrl-r redo • : command • e edit hex
   </div>
-  <div id="grid" class="grid" tabindex="0" aria-label="palette grid"></div>
-  <div class="status" id="status"></div>
-  <div class="cmd" id="cmd"><input id="cmdline" class="cmdline" spellcheck="false" autocomplete="off" /></div>
+  <div class="hint">format:<span id="fmt" class="fmt">hex</span></div>
+</div>
+<div id="grid" class="grid" tabindex="0"></div>
+<div class="status" id="status"></div>
+<div class="cmd" id="cmd"><input id="cmdline" class="cmdline" spellcheck="false" autocomplete="off" /></div>
 <script>
-/* Compact helpers */
+/* --- Utility --- */
 const clamp=(x,a,b)=>x<a?a:x>b?b:x, mod=(n,m)=>(n%m+m)%m;
 const pad2=x=>x.length==1?"0"+x:x, hex2=n=>pad2(Math.round(clamp(n,0,255)).toString(16));
-/* HSV<->RGB minimal */
-function hsv2rgb(h,s,v){
-  h=mod(h,360); s=clamp(s,0,1); v=clamp(v,0,1);
-  const c=v*s,m=v-c,x=c*(1-Math.abs(((h/60)%2)-1));
+const rgbStr=(r,g,b)=>`rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+const hexStr=(r,g,b)=>"#"+hex2(r)+hex2(g)+hex2(b);
+
+/* --- Color Math (HSL) --- */
+function hsl2rgb(h,s,l){
+  h=mod(h,360); s=clamp(s,0,1); l=clamp(l,0,1);
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs(((h/60)%2)-1));
+  const m=l-c/2;
   let r=0,g=0,b=0;
-  if(h<60){r=c;g=x}else if(h<120){r=x;g=c}
-  else if(h<180){g=c;b=x}else if(h<240){g=x;b=c}
-  else if(h<300){r=x;b=c}else{r=c;b=x}
+  if(h<60){r=c;g=x}
+  else if(h<120){r=x;g=c}
+  else if(h<180){g=c;b=x}
+  else if(h<240){g=x;b=c}
+  else if(h<300){r=x;b=c}
+  else{r=c;b=x}
   return [(r+m)*255,(g+m)*255,(b+m)*255];
 }
-function rgb2hsv(r,g,b){
+function rgb2hsl(r,g,b){
   r/=255;g/=255;b/=255;
   const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
   let h=0; if(d){ if(mx===r) h=60*mod((g-b)/d,6); else if(mx===g) h=60*((b-r)/d+2); else h=60*((r-g)/d+4); }
-  const s=mx?d/mx:0, v=mx;
-  return [mod(h,360),s,v];
+  const l=(mx+mn)/2;
+  const s=d===0?0:d/(1-Math.abs(2*l-1));
+  return [mod(h,360), s, l];
 }
-const rgbStr=(r,g,b)=>`rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
-const hexStr=(r,g,b)=>"#"+hex2(r)+hex2(g)+hex2(b);
-// hex parsing and setter utilities
 function parseHex(s){
   if(!s) return null;
-  s=s.trim().toLowerCase();
-  if(s[0]==="#") s=s.slice(1);
-  if(s.length!==6) return null;
+  s=s.trim().toLowerCase().replace(/^#/,"");
   if(!/^[0-9a-f]{6}$/.test(s)) return null;
-  const r=parseInt(s.slice(0,2),16), g=parseInt(s.slice(2,4),16), b=parseInt(s.slice(4,6),16);
-  return [r,g,b];
+  return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)];
 }
-function setHexOnIndex(i,hex){
-  const rgb=parseHex(hex);
-  if(!rgb) return false;
-  const [h,s,v]=rgb2hsv(rgb[0],rgb[1],rgb[2]);
-  cells[i]={h,s,v};
-  return true;
-}
-/* State */
+
+/* --- State --- */
 const W=4,H=4,N=W*H;
-let cells=Array.from({length:N},(_,i)=>({h:(i*360/N)|0,s:0.6,v:0.8}));
-let idx=0, fmt="hex", clip=null;
-let hist=[], redo=[];
-/* Persistence */
-const save=()=>{try{
-  const data={c:cells.map(o=>[+o.h.toFixed(1),+o.s.toFixed(3),+o.v.toFixed(3)]),i:idx,f:fmt};
-  const s=JSON.stringify(data);
-  localStorage.setItem("wptui",s);
-  location.hash=btoa(unescape(encodeURIComponent(s)));
-}catch{}};
-const load=()=>{try{
-  let s=null;
-  if(location.hash.length>1){
-    try{s=decodeURIComponent(escape(atob(location.hash.slice(1))))}catch{}
-  }
-  if(!s) s=localStorage.getItem("wptui");
-  if(!s) return;
-  const d=JSON.parse(s);
-  if(Array.isArray(d.c)&&d.c.length===N){
-    cells=d.c.map(a=>({h:a[0],s:a[1],v:a[2]}));
-    idx=clamp(d.i|0,0,N-1); fmt=(d.f==="rgb"||d.f==="hsv")?d.f:"hex";
-  }
-}catch{}};
-/* History */
+let cells=Array.from({length:N},(_,i)=>({h:(i*360/N)|0,s:0.6,l:0.5}));
+let idx=0, fmt="hex", clip=null, hist=[], redo=[], editingHex=false, cmdMode=false;
+
+/* --- Persistence --- */
+function save(){
+  try{
+    const data={c:cells.map(o=>[+o.h.toFixed(1),+o.s.toFixed(3),+o.l.toFixed(3)]),i:idx,f:fmt};
+    const s=JSON.stringify(data);
+    localStorage.setItem("wptui",s);
+    location.hash=btoa(unescape(encodeURIComponent(s)));
+  }catch{}
+}
+function load(){
+  try{
+    let s=null;
+    if(location.hash.length>1) try{s=decodeURIComponent(escape(atob(location.hash.slice(1))))}catch{}
+    if(!s) s=localStorage.getItem("wptui");
+    if(!s) return;
+    const d=JSON.parse(s);
+    if(Array.isArray(d.c)&&d.c.length===N){
+      cells=d.c.map(a=>({h:a[0],s:a[1],l:a[2]}));
+      idx=clamp(d.i|0,0,N-1); fmt=(["rgb","hsl"].includes(d.f)?d.f:"hex");
+    }
+  }catch{}
+}
+
+/* --- History --- */
 const snap=()=>JSON.stringify(cells);
 const pushHist=()=>{hist.push(snap()); if(hist.length>100) hist.shift(); redo.length=0};
-const canUndo=()=>hist.length>0;
-const canRedo=()=>redo.length>0;
-const doUndo=()=>{if(!canUndo())return; redo.push(snap()); cells=JSON.parse(hist.pop()); render()};
-const doRedo=()=>{if(!canRedo())return; hist.push(snap()); cells=JSON.parse(redo.pop()); render()};
-/* DOM */
-const grid=document.getElementById("grid");
-const status=document.getElementById("status");
-const fmtEl=document.getElementById("fmt");
-const cmd=document.getElementById("cmd");
-const cmdline=document.getElementById("cmdline");
-function cellEl(i){return grid.children[i]}
-function idxOf(el){return Array.prototype.indexOf.call(grid.children,el)}
-function build(){
+const doUndo=()=>{if(hist.length){redo.push(snap()); cells=JSON.parse(hist.pop()); render()}};
+const doRedo=()=>{if(redo.length){hist.push(snap()); cells=JSON.parse(redo.pop()); render()}};
+
+/* --- UI Rendering --- */
+const grid=document.getElementById("grid"), status=document.getElementById("status"), fmtEl=document.getElementById("fmt");
+function buildGrid(){
   grid.innerHTML="";
   for(let i=0;i<N;i++){
     const d=document.createElement("div");
-    d.className="cell"; d.setAttribute("role","button"); d.setAttribute("aria-label","cell "+(i+1));
-    d.addEventListener("click",()=>{idx=i; renderSel()});
+    d.className="cell"; d.addEventListener("click",()=>{idx=i; renderSel()});
     grid.appendChild(d);
   }
 }
 function fmtColor(o){
-  const [r,g,b]=hsv2rgb(o.h,o.s,o.v);
+  const [r,g,b]=hsl2rgb(o.h,o.s,o.l);
   if(fmt==="rgb") return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
-  if(fmt==="hsv") return `hsv(${o.h.toFixed(0)},${Math.round(o.s*100)}%,${Math.round(o.v*100)}%)`;
+  if(fmt==="hsl") return `hsl(${o.h.toFixed(0)},${Math.round(o.s*100)}%,${Math.round(o.l*100)}%)`;
   return hexStr(r,g,b);
 }
 function render(){
   for(let i=0;i<N;i++){
-    const c=cells[i];
-    const [r,g,b]=hsv2rgb(c.h,c.s,c.v);
-    const el=cellEl(i);
+    const c=cells[i], [r,g,b]=hsl2rgb(c.h,c.s,c.l), el=grid.children[i];
     el.style.background=rgbStr(r,g,b);
     let ov=el.querySelector(".overlay");
     if(!ov){ov=document.createElement("div");ov.className="overlay";el.appendChild(ov)}
-    const hasInput=ov.firstElementChild&&ov.firstElementChild.tagName==="INPUT";
-    if(!(hasInput && i===idx)) ov.textContent=fmtColor(c);
-    // ensure readable overlay text: choose dark or light based on luminance
-    const lum=0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255);
-    if(!hasInput) ov.style.color = lum>0.6 ? "#000" : "#fff";
+    if(!(editingHex && i===idx)) ov.textContent=fmtColor(c);
+    ov.style.color = (0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255))>0.6 ? "#000" : "#fff";
   }
   renderSel(); renderStatus(); fmtEl.textContent=fmt; save();
-  // keep focus on grid unless editing input is active
   if(!editingHex && document.activeElement!==grid) grid.focus();
 }
-function renderSel(){
-  for(let i=0;i<N;i++) cellEl(i).classList.toggle("sel",i===idx);
-}
+function renderSel(){[...grid.children].forEach((el,i)=>el.classList.toggle("sel",i===idx))}
 function renderStatus(){
-  const c=cells[idx], [r,g,b]=hsv2rgb(c.h,c.s,c.v);
+  const c=cells[idx], [r,g,b]=hsl2rgb(c.h,c.s,c.l);
   status.innerHTML=`<span class="kv">idx</span> <span class="val">${idx+1}/${N}</span>
-  <span class="kv">HSV</span> <span class="val">${c.h.toFixed(1)},${Math.round(c.s*100)}%,${Math.round(c.v*100)}%</span>
+  <span class="kv">HSL</span> <span class="val">${c.h.toFixed(1)},${Math.round(c.s*100)}%,${Math.round(c.l*100)}%</span>
   <span class="kv">RGB</span> <span class="val">${Math.round(r)},${Math.round(g)},${Math.round(b)}</span>
   <span class="kv">HEX</span> <span class="val">${hexStr(r,g,b)}</span>
   <span class="kv">fmt</span> <span class="fmt">${fmt}</span>`;
 }
-/* Ops */
-let editingHex=false;
+
+/* --- Editing --- */
+function setHexOnIndex(i,hex){
+  const rgb=parseHex(hex); if(!rgb) return false;
+  const [h,s,l]=rgb2hsl(...rgb); cells[i]={h,s,l}; return true;
+}
 function startHexEdit(){
   if(fmt!=="hex"||editingHex) return;
-  const el=cellEl(idx);
-  let ov=el.querySelector(".overlay");
-  if(!ov){ov=document.createElement("div");ov.className="overlay";el.appendChild(ov)}
-  const [r,g,b]=hsv2rgb(cells[idx].h,cells[idx].s,cells[idx].v);
-  const hex=hexStr(r,g,b);
-  ov.textContent="";
-  const inp=document.createElement("input");
-  inp.type="text";
-  inp.value=hex;
-  inp.spellcheck=false; inp.autocomplete="off";
-  inp.style.width="100%"; inp.style.border="none"; inp.style.background="transparent";
-  inp.style.font="inherit"; inp.style.fontWeight="700"; inp.style.color="#000";
-  ov.appendChild(inp);
-  editingHex=true;
-  inp.focus();
-  inp.setSelectionRange(hex[0]==="#"?1:0,hex.length);
-  function apply(){
-    const v=inp.value.trim();
-    if(setHexOnIndex(idx,v)){ pushHist(); render(); }
-    stop();
-  }
-  function stop(){
-    if(!editingHex) return;
-    editingHex=false;
-    // re-render overlay with formatted text
-    const c=cells[idx]; ov.textContent=fmtColor(c);
-    grid.focus();
-  }
-  inp.addEventListener("blur",()=>{ if(editingHex){ /* keep editing, refocus input */ inp.focus(); }});
-  inp.addEventListener("keydown",ev=>{
-    if(ev.key==="Enter"){ev.preventDefault(); apply();}
-    else if(ev.key==="Escape"){ev.preventDefault(); stop();}
-  });
+  const el=grid.children[idx], ov=el.querySelector(".overlay");
+  const [r,g,b]=hsl2rgb(cells[idx].h,cells[idx].s,cells[idx].l), hex=hexStr(r,g,b);
+  ov.textContent=""; const inp=document.createElement("input");
+  Object.assign(inp,{type:"text",value:hex,spellcheck:false,autocomplete:"off"});
+  ov.appendChild(inp); editingHex=true; inp.focus(); inp.setSelectionRange(1,hex.length);
+  inp.onkeydown=e=>{
+    if(e.key==="Enter"){if(setHexOnIndex(idx,inp.value)){pushHist(); render()} stopEdit()}
+    else if(e.key==="Escape"){stopEdit()}
+  };
+  function stopEdit(){editingHex=false; render()}
 }
-function move(dx,dy){
-  const x=idx%W,y=(idx/W)|0;
-  const nx=clamp(x+dx,0,W-1), ny=clamp(y+dy,0,H-1);
-  idx=ny*W+nx; renderSel(); renderStatus(); save();
-}
-function adjHue(d){pushHist(); cells[idx].h=mod(cells[idx].h+d,360); render()}
-function adjSat(d){pushHist(); cells[idx].s=clamp(cells[idx].s+d,0,1); render()}
-function adjVal(d){pushHist(); cells[idx].v=clamp(cells[idx].v+d,0,1); render()}
-function cycleFmt(){fmt=fmt==="hex"?"rgb":fmt==="rgb"?"hsv":"hex"; render()}
-async function copyText(t){
-  try{await navigator.clipboard.writeText(t);}catch(e){
-    const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select();
-    try{document.execCommand("copy")}catch{}; ta.remove();
-  }
-}
-function yank(){const c=cells[idx]; const out=fmtColor(c); clip={...c}; copyText(out)}
-function paste(){if(!clip)return; pushHist(); cells[idx]={...clip}; render()}
-/* Commands minimal for v0 */
-let cmdMode=false;
-function enterCmd(){cmdMode=true; cmd.classList.add("active"); cmdline.value=":"; cmdline.focus(); cmdline.setSelectionRange(1,1)}
-function exitCmd(){cmdMode=false; cmd.classList.remove("active"); grid.focus()}
+
+/* --- Actions --- */
+const move=(dx,dy)=>{const x=idx%W,y=(idx/W)|0; idx=clamp(x+dx,0,W-1)+clamp(y+dy,0,H-1)*W; renderSel(); renderStatus(); save()};
+const adjHue=d=>{pushHist(); cells[idx].h=mod(cells[idx].h+d,360); render()};
+const adjSat=d=>{pushHist(); cells[idx].s=clamp(cells[idx].s+d,0,1); render()};
+const adjLight=d=>{pushHist(); cells[idx].l=clamp(cells[idx].l+d,0,1); render()};
+const cycleFmt=()=>{fmt=fmt==="hex"?"rgb":fmt==="rgb"?"hsl":"hex"; render()};
+const yank=()=>{clip={...cells[idx]}; navigator.clipboard.writeText(fmtColor(cells[idx])).catch(()=>{})};
+const paste=()=>{if(clip){pushHist(); cells[idx]={...clip}; render()}};
+
+/* --- Commands --- */
 function runCmd(s){
-  const parts=s.trim().split(/\s+/);
-  const c=parts[0];
-  if(c==="format"&&parts[1]){const f=parts[1].toLowerCase(); if(f==="hex"||f==="rgb"||f==="hsv"){fmt=f; render();}}
-  else if(c==="copy"){ // :copy hex|rgb|hsv
-    const f=parts[1]||fmt; const old=fmt; if(f==="hex"||f==="rgb"||f==="hsv"){fmt=f; yank(); fmt=old;}
-  }
-  else if(c==="sethex"&&parts[1]){ // :sethex #rrggbb|rrggbb
-    const ok=setHexOnIndex(idx,parts[1]);
-    if(ok){pushHist(); render();} else {alert("Invalid hex. Use rrggbb or #rrggbb");}
-  }
-  else if(c==="save"){save()}
+  const [c,arg]=s.trim().split(/\s+/);
+  if(c==="format"&&["hex","rgb","hsl"].includes(arg)){fmt=arg; render()}
+  else if(c==="copy"){const old=fmt; if(["hex","rgb","hsl"].includes(arg)) fmt=arg; yank(); fmt=old}
+  else if(c==="sethex"&&arg){if(setHexOnIndex(idx,arg)){pushHist(); render()} else alert("Invalid hex")}
+  else if(c==="save") save();
   else if(c==="load"){load(); render()}
-  else if(c==="help"){alert("commands: :format hex|rgb|hsv • :copy [fmt] • :sethex #rrggbb • :save • :load")}
+else if(c==="help") alert(
+  "keys: hjkl move • H/L hue • S/D sat • V/F light • Shift+Alt = ×10 step\n" +
+  "y copy • p paste • u undo • Ctrl-r redo • : command • e edit hex\n" +
+  "commands: :format hex|rgb|hsl • :copy [fmt] • :sethex #rrggbb • :save • :load"
+);
 }
-/* Keys */
-grid.addEventListener("keydown",e=>{
-  if(cmdMode) return;
-  const k=e.key;
-  if(e.ctrlKey&&k.toLowerCase()==="r"){e.preventDefault(); doRedo(); return}
-  if(k===":"){e.preventDefault(); enterCmd(); return}
-  if(k==="e"){e.preventDefault(); startHexEdit(); return}
-  if(k==="Escape"){ // ensure Esc leaves cmd/edit modes and returns focus to grid
-    if(editingHex){ e.preventDefault(); /* handled by input */ return }
-    if(cmdMode){ e.preventDefault(); exitCmd(); return }
-  }
-  if(k==="h"){e.preventDefault(); move(-1,0)}
-  else if(k==="l"){e.preventDefault(); move(1,0)}
-  else if(k==="k"){e.preventDefault(); move(0,-1)}
-  else if(k==="j"){e.preventDefault(); move(0,1)}
-  else if(k==="H"){e.preventDefault(); adjHue(-1)}
-  else if(k==="L"){e.preventDefault(); adjHue(+1)}
-  else if(k==="S"){e.preventDefault(); adjSat(-0.01)}
-  else if(k==="D"){e.preventDefault(); adjSat(+0.01)}
-  else if(k==="V"){e.preventDefault(); adjVal(-0.01)}
-  else if(k==="F"){e.preventDefault(); adjVal(+0.01)}
-  else if(k==="m"){e.preventDefault(); cycleFmt()}
-  else if(k==="y"){e.preventDefault(); yank()}
-  else if(k==="p"){e.preventDefault(); paste()}
-  else if(k==="u"){e.preventDefault(); doUndo()}
-});
-cmdline.addEventListener("keydown",e=>{
-  if(e.key==="Escape"){e.preventDefault(); exitCmd(); return}
-  if(e.key==="Enter"){
-    e.preventDefault();
-    const v=cmdline.value;
-    if(v.startsWith(":")){runCmd(v.slice(1))}
-    exitCmd();
-  }
-});
-/* Init */
-load(); build(); render(); grid.focus();
-/* Prevent accidental focus loss: clicking status or header returns focus to grid */
-document.body.addEventListener("click",ev=>{
-  const t=ev.target;
-  if(editingHex) return; // don't steal focus from inline editor
-  if(t===grid || grid.contains(t)) return;
-  grid.focus();
-});
-/* Keep URL hash shorter by throttling saves */
-let t; const schedule=()=>{clearTimeout(t); t=setTimeout(save,150)};
-["adjHue","adjSat","adjVal","move","paste"].forEach(n=>{
-  const orig=eval(n);
-  window[n]=(...a)=>{orig(...a); schedule()}
-});
+
+/* --- Keyboard --- */
+grid.onkeydown = e => {
+  if (cmdMode) return;
+  const k = e.key;
+  const big = e.shiftKey && e.altKey; // detect Shift+Alt
+  if (e.ctrlKey && !e.shiftKey && k.toLowerCase() === "r")
+    return e.preventDefault(), doRedo();
+  if (k === ":")
+    return e.preventDefault(), cmdMode = true, cmd.classList.add("active"),
+      cmdline.value = ":", cmdline.focus();
+  if (k === "e") return e.preventDefault(), startHexEdit();
+
+  if (k === "h") move(-1, 0);
+  else if (k === "l") move(1, 0);
+  else if (k === "k") move(0, -1);
+  else if (k === "j") move(0, 1);
+
+  else if (k === "H") adjHue(big ? -10 : -1);
+  else if (k === "L") adjHue(big ? 10 : 1);
+
+  else if (k === "S") adjSat(big ? -0.10 : -0.01);
+  else if (k === "D") adjSat(big ? 0.10 : 0.01);
+
+  else if (k === "V") adjLight(big ? -0.10 : -0.01);
+  else if (k === "F") adjLight(big ? 0.10 : 0.01);
+
+  else if (k === "m") cycleFmt();
+  else if (k === "y") yank();
+  else if (k === "p") paste();
+  else if (k === "u") doUndo();
+};
+cmdline.onkeydown=e=>{
+  if(e.key==="Escape") return cmdMode=false,cmd.classList.remove("active"),grid.focus();
+  if(e.key==="Enter"){if(cmdline.value.startsWith(":")) runCmd(cmdline.value.slice(1)); cmdMode=false; cmd.classList.remove("active"); grid.focus();}
+};
+
+/* --- Init --- */
+load(); buildGrid(); render(); grid.focus();
 </script>
 </body>
 </html>
