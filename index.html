@@ -18,7 +18,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.2 ui-monospace,Co
 .cell{position:relative;min-height:54px;border:1px solid #000}
 .cell.lock:after{content:"L";position:absolute;top:2px;right:4px;color:#000;background:#fff3;padding:0 2px;font-size:10px}
 .cell.sel{outline:2px solid #fff7;box-shadow:0 0 0 2px #fff2 inset}
-.overlay{position:absolute;bottom:2px;left:4px;right:4px;color:#000;background:#fff6;font-weight:700;font-size:10px;padding:1px 2px;mix-blend-mode:screen}
+.overlay{position:absolute;bottom:2px;left:4px;right:4px;color:#000;background:#fff9;font-weight:700;font-size:10px;padding:1px 2px}
+.overlay input{width:100%;border:none;background:transparent;font:inherit;font-weight:700;color:#111;outline:none}
+/* ensure grid keeps focus for keyboard; visible focus for accessibility */
+.grid:focus{box-shadow:0 0 0 1px #555 inset}
 .status{display:flex;gap:16px;align-items:center;border-top:1px solid #222;border-bottom:none}
 .status .kv{color:var(--dim)}
 .status .val{color:var(--fg)}
@@ -31,9 +34,10 @@ a{color:inherit}
 <body>
   <div class="header">
     <div class="title">web-palette-tui</div>
-    <div class="hint">hjkl move • H/L hue • S/D sat • V/F val • y copy • p paste • u undo • Ctrl-r redo • : command</div>
+    <div class="hint">hjkl move • H/L hue • S/D sat • V/F val • y copy • p paste • u undo • Ctrl-r redo • : command • e edit hex</div>
     <div class="hint">format:<span id="fmt" class="fmt">hex</span></div>
     <div class="hint">4x4</div>
+    <div class="hint">:help for keys and commands</div>
   </div>
   <div id="grid" class="grid" tabindex="0" aria-label="palette grid"></div>
   <div class="status" id="status"></div>
@@ -141,11 +145,15 @@ function render(){
     el.style.background=rgbStr(r,g,b);
     let ov=el.querySelector(".overlay");
     if(!ov){ov=document.createElement("div");ov.className="overlay";el.appendChild(ov)}
-    // if currently editing this cell, keep input; else show formatted text
     const hasInput=ov.firstElementChild&&ov.firstElementChild.tagName==="INPUT";
     if(!(hasInput && i===idx)) ov.textContent=fmtColor(c);
+    // ensure readable overlay text: choose dark or light based on luminance
+    const lum=0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255);
+    if(!hasInput) ov.style.color = lum>0.6 ? "#000" : "#fff";
   }
   renderSel(); renderStatus(); fmtEl.textContent=fmt; save();
+  // keep focus on grid unless editing input is active
+  if(!editingHex && document.activeElement!==grid) grid.focus();
 }
 function renderSel(){
   for(let i=0;i<N;i++) cellEl(i).classList.toggle("sel",i===idx);
@@ -190,6 +198,7 @@ function startHexEdit(){
     const c=cells[idx]; ov.textContent=fmtColor(c);
     grid.focus();
   }
+  inp.addEventListener("blur",()=>{ if(editingHex){ /* keep editing, refocus input */ inp.focus(); }});
   inp.addEventListener("keydown",ev=>{
     if(ev.key==="Enter"){ev.preventDefault(); apply();}
     else if(ev.key==="Escape"){ev.preventDefault(); stop();}
@@ -238,6 +247,10 @@ grid.addEventListener("keydown",e=>{
   if(e.ctrlKey&&k.toLowerCase()==="r"){e.preventDefault(); doRedo(); return}
   if(k===":"){e.preventDefault(); enterCmd(); return}
   if(k==="e"){e.preventDefault(); startHexEdit(); return}
+  if(k==="Escape"){ // ensure Esc leaves cmd/edit modes and returns focus to grid
+    if(editingHex){ e.preventDefault(); /* handled by input */ return }
+    if(cmdMode){ e.preventDefault(); exitCmd(); return }
+  }
   if(k==="h"){e.preventDefault(); move(-1,0)}
   else if(k==="l"){e.preventDefault(); move(1,0)}
   else if(k==="k"){e.preventDefault(); move(0,-1)}
@@ -264,6 +277,13 @@ cmdline.addEventListener("keydown",e=>{
 });
 /* Init */
 load(); build(); render(); grid.focus();
+/* Prevent accidental focus loss: clicking status or header returns focus to grid */
+document.body.addEventListener("click",ev=>{
+  const t=ev.target;
+  if(editingHex) return; // don't steal focus from inline editor
+  if(t===grid || grid.contains(t)) return;
+  grid.focus();
+});
 /* Keep URL hash shorter by throttling saves */
 let t; const schedule=()=>{clearTimeout(t); t=setTimeout(save,150)};
 ["adjHue","adjSat","adjVal","move","paste"].forEach(n=>{
